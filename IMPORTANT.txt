@@ -1,5 +1,13 @@
-V22.3 SUBTITLE REPAIR V2
+THIS IS THE CORRECTED PACKAGE.
 
-app.py contains the subtitle drop-out repair.
-Normal whisper.cpp token timestamps are primary; DTW is fallback only.
-No other video/audio pipeline was intentionally changed.
+- app.py = original working V22.3 app.py
+- subtitle engine = original working V22.3
+- export/burn-in = original working V22.3
+- workflow/spec = original V22.3 build configuration
+- ONLY the intro MP4 content was replaced
+- the original intro filename was intentionally preserved
+
+Do NOT replace app.py with a newer Countdown-intro app.py.
+
+
+SUBTITLE REPAIR V2: DTW token timestamps are intentionally disabled. The subtitle parser uses normal whisper.cpp token timestamps and segment-level fallbacks to prevent mid-video timing gaps.

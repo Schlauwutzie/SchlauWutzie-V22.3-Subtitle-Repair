@@ -5,10 +5,6 @@ V22.3 targets the two remaining problems seen in the supplied test video:
 1. subtitles appearing too low;
 2. word timing not following the spoken audio closely enough.
 
-## Subtitle drop-out repair
-
-The subtitle parser now uses whisper.cpp normal absolute token timestamps first. Experimental DTW timestamps are only a fallback when normal token timing is missing, and implausible/reset DTW values are rejected. This prevents the subtitle timeline from stopping or jumping backwards in the middle/end of a video.
-
 ## Synchronization upgrade
 
 V22.3 replaces the Small q5_1 timestamp path with:
@@ -18,7 +14,7 @@ V22.3 replaces the Small q5_1 timestamp path with:
 - `--dtw large.v3.turbo`
 - `--output-json-full`
 
-whisper.cpp exposes experimental token-level timestamps with DTW,
+whisper.cpp exposes experimental token-level timestamps with stable Whisper timestamp,
 including `t_dtw`; the Large-v3-Turbo alignment-head preset is explicitly
 supported. citeturn778414search0turn778414search1turn778414search3
 
