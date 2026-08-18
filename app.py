@@ -1058,191 +1058,150 @@ def _v22_parse_ts(value: str) -> float:
 
 def _v23_words_from_full_json(payload):
     """
-    Convert whisper.cpp token timestamps to absolute word spans.
+    Convert whisper.cpp --output-json-full token data into real word spans.
 
-    Important: whisper.cpp can emit token timestamps on a local/processed
-    timeline while the enclosing segment timestamps are absolute.  In that
-    case a later segment can contain token times starting near 0 although
-    the segment itself starts much later.  This is a known timestamp issue
-    in whisper.cpp; do not simply clamp those token times to the segment
-    start, because that collapses the whole segment onto one instant.
-
-    We detect that case per segment and offset the token times by the
-    absolute segment start.  DTW is deliberately not used here.
+    For V22.3 we prefer DTW token timestamps (t_dtw). When unavailable,
+    fall back to token t0/t1. Tokens are combined into words using
+    whitespace boundaries while preserving punctuation.
     """
     words = []
+    current_text = []
+    current_start = None
+    current_last_end = None
 
-    def parse_ts_pair(tok):
-        ts = tok.get("timestamps", {}) or {}
-        try:
-            start = _v22_parse_ts(ts.get("from"))
-            end = _v22_parse_ts(ts.get("to"))
-            if end >= start:
-                return float(start), float(end)
-        except Exception:
-            pass
-        return None
+    def flush():
+        nonlocal current_text, current_start, current_last_end
+        text = "".join(current_text).strip()
+        if text and current_start is not None:
+            words.append(
+                (
+                    text,
+                    float(current_start),
+                    max(
+                        float(current_start) + 0.05,
+                        float(current_last_end or current_start),
+                    ),
+                )
+            )
+        current_text = []
+        current_start = None
+        current_last_end = None
 
-    for seg in payload.get("transcription", []) or []:
+    for seg in payload.get("transcription", []):
         if not isinstance(seg, dict):
             continue
 
-        seg_start = seg_end = None
-        try:
-            seg_ts = seg.get("timestamps", {}) or {}
-            seg_start = _v22_parse_ts(seg_ts.get("from"))
-            seg_end = _v22_parse_ts(seg_ts.get("to"))
-            if seg_end < seg_start:
-                seg_start = seg_end = None
-        except Exception:
-            pass
-
-        tokens = seg.get("tokens", []) or []
-        records = []
-        for tok in tokens:
+        for tok in seg.get("tokens", []) or []:
             if not isinstance(tok, dict):
                 continue
-            raw = str(tok.get("text", "") or "")
-            if not raw or raw.startswith("[_") or raw.startswith("<|"):
-                continue
-            pair = parse_ts_pair(tok)
-            records.append({
-                "text": raw,
-                "start": pair[0] if pair else None,
-                "end": pair[1] if pair else None,
-            })
 
-        if not records:
-            seg_text = str(seg.get("text", "") or "").strip()
-            if seg_text and seg_start is not None:
-                words.append((
-                    seg_text,
-                    float(seg_start),
-                    max(float(seg_start) + 0.05,
-                        float(seg_end or seg_start + 0.05)),
-                ))
-            continue
-
-        known = [(r["start"], r["end"]) for r in records
-                 if r["start"] is not None and r["end"] is not None]
-
-        # Critical repair:
-        # If the segment is on an absolute timeline but ALL usable token
-        # timestamps fit inside the segment duration and start near zero,
-        # whisper.cpp has supplied local/processed token times. Offset them
-        # by the segment's absolute start instead of clamping them.
-        local_offset = 0.0
-        if seg_start is not None and seg_end is not None and known:
-            max_tok_end = max(e for _, e in known)
-            min_tok_start = min(s for s, _ in known)
-            seg_duration = max(0.0, float(seg_end) - float(seg_start))
-            # Conservative detection: token range looks local AND is clearly
-            # earlier than the absolute segment position.
-            looks_local = (
-                float(seg_start) > 0.5
-                and min_tok_start < 0.5
-                and max_tok_end <= seg_duration + 0.75
-                and max_tok_end < float(seg_start) - 0.25
+            text = str(
+                tok.get("text", "")
+                or ""
             )
-            if looks_local:
-                local_offset = float(seg_start)
-
-        for rec in records:
-            if rec["start"] is not None and rec["end"] is not None:
-                rec["start"] += local_offset
-                rec["end"] += local_offset
-
-        # Repair genuinely missing normal token timestamps.
-        known_idx = [i for i, r in enumerate(records)
-                     if r["start"] is not None and r["end"] is not None]
-        if not known_idx:
-            if seg_start is not None:
-                seg_text = "".join(r["text"] for r in records).strip()
-                if seg_text:
-                    words.append((
-                        seg_text,
-                        float(seg_start),
-                        max(float(seg_start) + 0.05,
-                            float(seg_end or seg_start + 0.05)),
-                    ))
-            continue
-
-        for i, rec in enumerate(records):
-            if rec["start"] is not None and rec["end"] is not None:
+            if not text:
                 continue
 
-            prev = next((records[j] for j in range(i - 1, -1, -1)
-                         if records[j]["start"] is not None), None)
-            nxt = next((records[j] for j in range(i + 1, len(records))
-                        if records[j]["start"] is not None), None)
-
-            if prev is not None and nxt is not None:
-                a = float(prev["end"])
-                b = float(nxt["start"])
-                if b >= a:
-                    rec["start"], rec["end"] = a, b
-                else:
-                    rec["start"], rec["end"] = float(prev["start"]), float(prev["end"])
-            elif prev is not None:
-                rec["start"] = float(prev["end"])
-                rec["end"] = float(prev["end"]) + 0.05
-            elif nxt is not None:
-                base = float(seg_start or 0.0)
-                rec["start"] = max(base, float(nxt["start"]) - 0.05)
-                rec["end"] = float(nxt["start"])
-            elif seg_start is not None:
-                rec["start"] = float(seg_start)
-                rec["end"] = min(float(seg_end or seg_start + 0.05),
-                                 float(seg_start) + 0.05)
-
-        current_text = []
-        current_start = None
-        current_end = None
-
-        def flush():
-            nonlocal current_text, current_start, current_end
-            text = "".join(current_text).strip()
-            if text and current_start is not None and current_end is not None:
-                end = max(float(current_start) + 0.05, float(current_end))
-                if seg_end is not None:
-                    end = min(end, float(seg_end))
-                if end > float(current_start):
-                    words.append((text, float(current_start), end))
-            current_text = []
-            current_start = None
-            current_end = None
-
-        for rec in records:
-            start_t, end_t = rec["start"], rec["end"]
-            if start_t is None or end_t is None:
+            # Ignore special tokens.
+            if text.startswith("[_") or text.startswith("<|"):
                 continue
 
-            if seg_start is not None:
-                start_t = max(float(seg_start), float(start_t))
-            if seg_end is not None:
-                end_t = min(float(seg_end), float(end_t))
-            if end_t < start_t:
-                end_t = start_t
+            # DTW timestamp is reported in centiseconds in the whisper.cpp
+            # token data API. Fall back to normal token timestamps.
+            dtw = tok.get("t_dtw", -1)
+            use_dtw = (
+                isinstance(dtw, (int, float))
+                and float(dtw) >= 0
+            )
 
-            clean = rec["text"].replace("\u2581", " ")
-            if bool(clean[:1].isspace()) and current_text:
+            if use_dtw:
+                # whisper.cpp exposes t_dtw as a WORD/TOKEN START position.
+                # It does not contain the token end.  Using start == end makes
+                # every ASS {\k...} duration collapse to 1 centisecond,
+                # which causes the subtitle highlight to race through the line.
+                # Keep the DTW start here; the real end is reconstructed below
+                # from the next token/word start.
+                start = float(dtw) / 100.0
+                end = start
+            else:
+                ts = tok.get("timestamps", {}) or {}
+                try:
+                    start = _v22_parse_ts(ts.get("from"))
+                    end = _v22_parse_ts(ts.get("to"))
+                except Exception:
+                    continue
+
+            # A leading space indicates a new word.
+            starts_new_word = bool(
+                text[:1].isspace()
+            )
+
+            clean = text.replace(
+                "\u2581",
+                " ",
+            )
+
+            if starts_new_word and current_text:
                 flush()
 
             if current_start is None:
-                current_start = float(start_t)
+                current_start = start
+
             current_text.append(clean.lstrip() if not current_text else clean)
-            current_end = max(float(current_end or end_t), float(end_t))
 
-        flush()
+            current_last_end = (
+                max(
+                    end,
+                    float(current_last_end or end),
+                )
+            )
 
-    # Preserve chronology but do not erase a genuine segment transition.
+            # Standalone punctuation should attach to the preceding word.
+            stripped = clean.strip()
+            if (
+                stripped
+                and all(
+                    ch in ".,!?;:%)]}–—-"
+                    for ch in stripped
+                )
+            ):
+                current_last_end = max(
+                    float(current_last_end or end),
+                    end,
+                )
+
+    flush()
+
+    # DTW gives us reliable word/token START times, but not a usable END time.
+    # Reconstruct each word span from the next word start.  Without this step
+    # DTW words have start == end and ASS karaoke timing becomes effectively
+    # instantaneous (the visible "subtitle racing" bug).
+    fixed_words = []
+    for index, (text, start, end) in enumerate(words):
+        start = float(start)
+        if index + 1 < len(words):
+            next_start = float(words[index + 1][1])
+            if next_start > start:
+                end = next_start
+            else:
+                end = start + 0.05
+        else:
+            end = max(float(end), start + 0.35)
+
+        # Prevent a single long silence from keeping the word highlighted.
+        end = min(end, start + 1.20)
+        end = max(end, start + 0.05)
+        fixed_words.append((text, start, end))
+
+    # Preserve chronology and eliminate tiny backward timestamp glitches.
     cleaned = []
     last_start = 0.0
-    for text, start_t, end_t in words:
-        start_t = max(float(start_t), last_start)
-        end_t = max(float(end_t), start_t + 0.05)
-        cleaned.append((text, start_t, end_t))
-        last_start = start_t
+    for text, start, end in fixed_words:
+        start = max(start, last_start)
+        end = max(end, start + 0.05)
+        cleaned.append((text, start, end))
+        last_start = start
+
     return cleaned
 
 
@@ -1355,6 +1314,8 @@ def transcribe_german_to_ass(
         "5",
         "-bo",
         "5",
+        "-dtw",
+        "large.v3.turbo",
         "-ojf",
         "-of",
         str(base),
@@ -1431,7 +1392,7 @@ def transcribe_german_to_ass(
             ignore_errors=True,
         )
         raise RuntimeError(
-            "V22.3: Die Whisper-Zeitstempel konnten nicht gelesen werden.\n\n"
+            "V22.3: Die DTW-Zeitstempel konnten nicht gelesen werden.\n\n"
             + str(exc)
         ) from exc
 
@@ -2547,7 +2508,7 @@ class App(tk.Tk):
         self.progress["value"] = 0
 
         self.set_status(
-            "V22.1: Intro + Hauptvideo + Untertitel werden gerendert …"
+            "V22.3: Intro + Hauptvideo + Untertitel werden gerendert …"
         )
 
         threading.Thread(
