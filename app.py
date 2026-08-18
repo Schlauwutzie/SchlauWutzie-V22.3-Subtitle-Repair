@@ -1058,34 +1058,40 @@ def _v22_parse_ts(value: str) -> float:
 
 def _v23_words_from_full_json(payload):
     """
-    Convert whisper.cpp --output-json-full token data into real word spans.
+    Build word spans from whisper.cpp's normal token timestamps.
 
-    For V22.3 we prefer DTW token timestamps (t_dtw). When unavailable,
-    fall back to token t0/t1. Tokens are combined into words using
-    whitespace boundaries while preserving punctuation.
+    IMPORTANT:
+    Do NOT use t_dtw here. DTW is experimental token-level timing and was
+    responsible for the previous subtitle race/jump behaviour. The normal
+    JSON-full token timestamps already contain both `from` and `to`, so they
+    provide a real interval for every token.
+
+    Tokens are combined into words using whitespace boundaries while
+    preserving punctuation.
     """
     words = []
     current_text = []
     current_start = None
-    current_last_end = None
+    current_end = None
 
     def flush():
-        nonlocal current_text, current_start, current_last_end
+        nonlocal current_text, current_start, current_end
         text = "".join(current_text).strip()
         if text and current_start is not None:
+            end = max(
+                float(current_end or current_start),
+                float(current_start) + 0.05,
+            )
             words.append(
                 (
                     text,
                     float(current_start),
-                    max(
-                        float(current_start) + 0.05,
-                        float(current_last_end or current_start),
-                    ),
+                    end,
                 )
             )
         current_text = []
         current_start = None
-        current_last_end = None
+        current_end = None
 
     for seg in payload.get("transcription", []):
         if not isinstance(seg, dict):
@@ -1095,51 +1101,25 @@ def _v23_words_from_full_json(payload):
             if not isinstance(tok, dict):
                 continue
 
-            text = str(
-                tok.get("text", "")
-                or ""
-            )
+            text = str(tok.get("text", "") or "")
             if not text:
                 continue
 
-            # Ignore special tokens.
             if text.startswith("[_") or text.startswith("<|"):
                 continue
 
-            # DTW timestamp is reported in centiseconds in the whisper.cpp
-            # token data API. Fall back to normal token timestamps.
-            dtw = tok.get("t_dtw", -1)
-            use_dtw = (
-                isinstance(dtw, (int, float))
-                and float(dtw) >= 0
-            )
+            ts = tok.get("timestamps", {}) or {}
+            try:
+                start = _v22_parse_ts(ts.get("from"))
+                end = _v22_parse_ts(ts.get("to"))
+            except Exception:
+                continue
 
-            if use_dtw:
-                # whisper.cpp exposes t_dtw as a WORD/TOKEN START position.
-                # It does not contain the token end.  Using start == end makes
-                # every ASS {\k...} duration collapse to 1 centisecond,
-                # which causes the subtitle highlight to race through the line.
-                # Keep the DTW start here; the real end is reconstructed below
-                # from the next token/word start.
-                start = float(dtw) / 100.0
-                end = start
-            else:
-                ts = tok.get("timestamps", {}) or {}
-                try:
-                    start = _v22_parse_ts(ts.get("from"))
-                    end = _v22_parse_ts(ts.get("to"))
-                except Exception:
-                    continue
+            if end < start:
+                end = start + 0.05
 
-            # A leading space indicates a new word.
-            starts_new_word = bool(
-                text[:1].isspace()
-            )
-
-            clean = text.replace(
-                "\u2581",
-                " ",
-            )
+            starts_new_word = bool(text[:1].isspace())
+            clean = text.replace("\u2581", " ")
 
             if starts_new_word and current_text:
                 flush()
@@ -1147,60 +1127,30 @@ def _v23_words_from_full_json(payload):
             if current_start is None:
                 current_start = start
 
-            current_text.append(clean.lstrip() if not current_text else clean)
-
-            current_last_end = (
-                max(
-                    end,
-                    float(current_last_end or end),
-                )
+            current_text.append(
+                clean.lstrip() if not current_text else clean
             )
 
-            # Standalone punctuation should attach to the preceding word.
-            stripped = clean.strip()
-            if (
-                stripped
-                and all(
-                    ch in ".,!?;:%)]}–—-"
-                    for ch in stripped
-                )
-            ):
-                current_last_end = max(
-                    float(current_last_end or end),
-                    end,
-                )
+            current_end = max(
+                float(current_end or end),
+                float(end),
+            )
 
     flush()
 
-    # DTW gives us reliable word/token START times, but not a usable END time.
-    # Reconstruct each word span from the next word start.  Without this step
-    # DTW words have start == end and ASS karaoke timing becomes effectively
-    # instantaneous (the visible "subtitle racing" bug).
-    fixed_words = []
-    for index, (text, start, end) in enumerate(words):
-        start = float(start)
-        if index + 1 < len(words):
-            next_start = float(words[index + 1][1])
-            if next_start > start:
-                end = next_start
-            else:
-                end = start + 0.05
-        else:
-            end = max(float(end), start + 0.35)
-
-        # Prevent a single long silence from keeping the word highlighted.
-        end = min(end, start + 1.20)
-        end = max(end, start + 0.05)
-        fixed_words.append((text, start, end))
-
-    # Preserve chronology and eliminate tiny backward timestamp glitches.
+    # Keep chronology and repair only impossible/tiny intervals.
     cleaned = []
-    last_start = 0.0
-    for text, start, end in fixed_words:
-        start = max(start, last_start)
-        end = max(end, start + 0.05)
+    last_end = 0.0
+
+    for text, start, end in words:
+        start = max(float(start), last_end)
+        end = max(float(end), start + 0.05)
+
+        # A corrupted token timestamp must never hold a word for many seconds.
+        end = min(end, start + 1.50)
+
         cleaned.append((text, start, end))
-        last_start = start
+        last_end = end
 
     return cleaned
 
@@ -1288,7 +1238,7 @@ def transcribe_german_to_ass(
 
     if status_callback:
         status_callback(
-            "V22.3: Whisper Large-v3-Turbo analysiert die Sprachspur …"
+            "V22.3: Whisper Large-v3-Turbo analysiert die Sprachspur (stabile Zeitstempel) …"
         )
 
     prompt = re.sub(
@@ -1314,8 +1264,6 @@ def transcribe_german_to_ass(
         "5",
         "-bo",
         "5",
-        "-dtw",
-        "large.v3.turbo",
         "-ojf",
         "-of",
         str(base),
@@ -1392,7 +1340,7 @@ def transcribe_german_to_ass(
             ignore_errors=True,
         )
         raise RuntimeError(
-            "V22.3: Die DTW-Zeitstempel konnten nicht gelesen werden.\n\n"
+            "V22.3: Die Whisper-Zeitstempel konnten nicht gelesen werden.\n\n"
             + str(exc)
         ) from exc
 
@@ -1484,7 +1432,7 @@ def transcribe_german_to_ass(
 
     if status_callback:
         status_callback(
-            f"V22.3: {len(groups)} synchronisierte Untertitelblöcke erzeugt."
+            f"V22.3: {len(groups)} synchronisierte Untertitelblöcke erzeugt (stabile Zeitstempel)."
         )
 
     return str(ass_path)
@@ -2498,7 +2446,7 @@ class App(tk.Tk):
             filetypes=[
                 ("MP4", "*.mp4"),
             ],
-            initialfile="SchlauWutzie_V22_2_FINAL.mp4",
+            initialfile="SchlauWutzie_V22_3_FINAL.mp4",
         )
 
         if not output:
