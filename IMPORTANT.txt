@@ -1,0 +1,5 @@
+V22.3 SUBTITLE REPAIR V2
+
+app.py contains the subtitle drop-out repair.
+Normal whisper.cpp token timestamps are primary; DTW is fallback only.
+No other video/audio pipeline was intentionally changed.
