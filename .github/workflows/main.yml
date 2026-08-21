@@ -1,4 +1,4 @@
-name: Build V22.3 FINAL – stable Whisper timestamps
+name: Build V22.3 FINAL – DTW Large-v3-Turbo
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
         shell: pwsh
         run: |
           if (!(Test-Path "app.py")) { throw "app.py fehlt." }
-          if (!(Test-Path "SchlauWutzie_V22_3_SUBTITLE_REPAIR_FINAL.spec")) { throw "V22.3 SPEC fehlt." }
+          if (!(Test-Path "SchlauWutzie_V22_3_DTW_LARGE_V3_TURBO_FINAL.spec")) { throw "V22.3 SPEC fehlt." }
           if (!(Test-Path "assets\schlawutzie.png")) { throw "Hintergrundbild fehlt." }
           if (!(Test-Path "assets\SchlauWutzie_KI_AI_Datacenter_Intro_V4_FINAL.mp4")) { throw "Intro-MP4 fehlt." }
 
@@ -65,7 +65,7 @@ jobs:
           }
           Write-Host "Large-v3-Turbo q5_0 SHA256 OK."
 
-      - name: Whisper JSON timestamp smoke test
+      - name: Whisper DTW smoke test
         shell: pwsh
         run: |
           python -c "import wave, struct; w=wave.open('smoke.wav','wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(struct.pack('<h',0)*32000); w.close()"
@@ -78,11 +78,12 @@ jobs:
             -p 1 `
             -bs 2 `
             -bo 2 `
+            -dtw large.v3.turbo `
             -ojf `
             -of smoke `
             -np `
             -nf
-          if (!(Test-Path "smoke.json")) { throw "Whisper JSON Smoke-Test fehlgeschlagen." }
+          if (!(Test-Path "smoke.json")) { throw "DTW Smoke-Test fehlgeschlagen." }
 
       - name: Syntax check
         shell: pwsh
@@ -93,17 +94,17 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, dist
-          python -m PyInstaller --clean --noconfirm SchlauWutzie_V22_3_SUBTITLE_REPAIR_FINAL.spec
-          $exe = "dist\SchlauWutzie_V22_3_SUBTITLE_REPAIR_FINAL.exe"
+          python -m PyInstaller --clean --noconfirm SchlauWutzie_V22_3_DTW_LARGE_V3_TURBO_FINAL.spec
+          $exe = "dist\SchlauWutzie_V22_3_DTW_LARGE_V3_TURBO_FINAL.exe"
           if (!(Test-Path $exe)) { throw "V22.3 EXE wurde nicht erzeugt." }
           $size = (Get-Item $exe).Length
           if ($size -lt 500000000) { throw "V22.3 EXE ist verdächtig klein; Modell fehlt wahrscheinlich." }
-          Write-Host "V22.3 repair EXE size: $size bytes"
+          Write-Host "V22.3 EXE size: $size bytes"
 
       - name: Upload V22.3 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SchlauWutzie_V22_3_SUBTITLE_REPAIR_FINAL-Windows-x64
-          path: dist/SchlauWutzie_V22_3_SUBTITLE_REPAIR_FINAL.exe
+          name: SchlauWutzie_V22_3_DTW_LARGE_V3_TURBO_FINAL-Windows-x64
+          path: dist/SchlauWutzie_V22_3_DTW_LARGE_V3_TURBO_FINAL.exe
           if-no-files-found: error
           retention-days: 14
