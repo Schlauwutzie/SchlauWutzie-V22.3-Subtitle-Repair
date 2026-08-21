@@ -1,0 +1,16 @@
+THIS IS THE CORRECTED PACKAGE.
+
+- app.py = original working V22.3 app.py
+- subtitle engine = original working V22.3
+- export/burn-in = original working V22.3
+- workflow/spec = original V22.3 build configuration
+- ONLY the intro MP4 content was replaced
+- the original intro filename was intentionally preserved
+
+Do NOT replace app.py with a newer Countdown-intro app.py.
+
+
+SUBTITLE FIX APPLIED:
+V22.3 subtitle rendering was adjusted for larger mobile-readable text.
+Font size is 68, captions are shorter, and long captions are balanced over
+at most two lines. DTW word synchronization remains enabled.
