@@ -1,0 +1,11 @@
+V22.7 – VIDEO OBEN + SCHLAUWUTZIE-ANIMATION UNTEN
+
+- Neues verbindliches 9:16-Layout: geladenes MP4 oben, Branding.png unten.
+- Branding.png ist die originale SchlauWutzie-K.I.-Animation; keine Ersatzgrafik und kein Avatar-Overlay.
+- Untere Animation reagiert auf die gewählte Audiospur mit subtiler Bewegung, Glow und Audio-Waveform.
+- Vorschau verwendet dieselbe Split-Komposition wie der Export.
+- Ausgabe 1080x1920, 30 FPS.
+- Die Videolänge richtet sich nach der gewählten Audiospur.
+- Wenn das obere Video kürzer als die Stimme ist, wird das letzte Videobild gehalten; die untere Animation läuft weiter.
+- Kein K.I.-ONLINE-/Datacenter-Intro.
+- Auto-Untertitel bleiben nachgelagert und werden auf das fertige 9:16-Video gebrannt.
