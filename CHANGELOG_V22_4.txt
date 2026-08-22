@@ -1,0 +1,8 @@
+SchlauWutzie Video Studio V22.4 FINAL BRANDING
+
+Korrekturen:
+1. SCHLAUWUTZIE K.I. statt K.I. ONLINE in der festen Referenzgrafik.
+2. Die Referenzgrafik wird bei Bild- und MP4-Rendering verwendet.
+3. Bild laden und MP4 laden bleiben erhalten.
+4. Audio bestimmt die tatsächliche Videolänge – keine 60-Sekunden-Zwangslänge.
+5. 1080x1920 / 9:16 bleibt erhalten.

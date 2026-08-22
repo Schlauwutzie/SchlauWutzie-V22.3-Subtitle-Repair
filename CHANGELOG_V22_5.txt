@@ -1,0 +1,19 @@
+SchlauWutzie V22.5 FINAL CENTER HEAD
+
+
+Änderungen:
+
+- Verwendet die exakt geladene Branding.png als Standardgrafik.
+
+- Kein Datacenter-/K.I.-Online-Intro mehr.
+
+- Schlauwutzie-Kopf wird sichtbar und zentral über dem Brain-Core animiert.
+
+- Kopf reagiert leicht auf die Sprachamplitude.
+
+- Vollständige Branding-Grafik bleibt im 9:16-Video sichtbar (Contain + weicher Hintergrund).
+
+- SCHLAUWUTZIE K.I. kommt aus der gelieferten Branding.png; keine zusätzliche K.I.-ONLINE-Zeile.
+
+- Videolänge folgt weiterhin der tatsächlichen Audiodauer.
+- Ausgabe 1080x1920 / 9:16.
